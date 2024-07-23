@@ -3,6 +3,8 @@ using TMPro;
 using System.Collections.Generic;
 using UnityEngine.UI;
 using System.Linq;
+using System;
+using System.Globalization; // 추가
 
 public class RandomGroupAssigner : MonoBehaviour
 {
@@ -12,6 +14,7 @@ public class RandomGroupAssigner : MonoBehaviour
     public TMP_InputField teamNumInputField; // 조별 인원
     public TextMeshProUGUI alarmText; // 복사 완료 알람
     public TMP_InputField weekNumInputField; // 생성할 주
+    public TMP_InputField weekFromInputField; // 시작 주
     public Toggle enterToggle;
     public Toggle spacebarToggle;
     public Toggle commaToggle;
@@ -119,7 +122,7 @@ public class RandomGroupAssigner : MonoBehaviour
         for (int i = 0; i < list.Count; i++)
         {
             string temp = list[i];
-            int randomIndex = Random.Range(i, list.Count);
+            int randomIndex = UnityEngine.Random.Range(i, list.Count);
             list[i] = list[randomIndex];
             list[randomIndex] = temp;
         }
@@ -146,6 +149,14 @@ public class RandomGroupAssigner : MonoBehaviour
     private void GenerateTeamsForWeeks(int weeks)
     {
         string result = "";
+        DateTime startDate;
+        if (!DateTime.TryParseExact(weekFromInputField.text, "yyyy-MM-dd", null, DateTimeStyles.None, out startDate))
+        {
+            resultText.text = "시작 날짜가 올바른 형식이 아닙니다. (YYYY-MM-DD)";
+            AdjustContentSize();
+            return;
+        }
+
         for (int week = 0; week < weeks; week++)
         {
             InitializeGroups();
@@ -158,7 +169,9 @@ public class RandomGroupAssigner : MonoBehaviour
                 groups[groupIndex].AddRange(team);
             }
 
-            result += $"Week {week + 1}:\n" + FormatGroups() + "\n";
+            DateTime currentWeekStartDate = startDate.AddDays(week * 7);
+            DateTime currentWeekEndDate = startDate.AddDays(week * 7 + 6);
+            result += $"{week + 1}주 차 ({currentWeekStartDate.ToString("yyyy-MM-dd")} ~ {currentWeekEndDate.ToString("yyyy-MM-dd")}):\n" + FormatGroups() + "\n";
             UpdateTeamHistory();
         }
 
