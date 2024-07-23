@@ -1,7 +1,8 @@
 using UnityEngine;
-using TMPro; // TextMeshPro를 사용하기 위해 추가
+using TMPro;
 using System.Collections.Generic;
 using UnityEngine.UI;
+using System.Linq;
 
 public class RandomGroupAssigner : MonoBehaviour
 {
@@ -15,16 +16,21 @@ public class RandomGroupAssigner : MonoBehaviour
     public Toggle SpacebarToggle;
     public Toggle CommaToggle;
 
+    // 주단위 생성 토글
+    public Toggle WeekToggle;
+
     private List<string> players;
     private List<string>[] groups;
     private List<string> remainingPlayers; // 남은 인원을 저장할 리스트
 
-
     private byte teamNumber; // teamNumber 변수를 byte 형식으로 선언
     private byte groupsNumber; // 조 갯수
+
+    private Dictionary<string, Dictionary<string, int>> teamHistory; // 팀 구성 기록
+
     void Start()
     {
-        // InitializeGroups();
+        teamHistory = new Dictionary<string, Dictionary<string, int>>();
     }
 
     public void AssignGroups()
@@ -36,25 +42,33 @@ public class RandomGroupAssigner : MonoBehaviour
         }
         else
         {
-            resultText.text = "조별 인원이 옳바른 형식이 아닙니다.";
+            resultText.text = "조별 인원이 올바른 형식이 아닙니다.";
             teamNumber = 0;
             AdjustContentSize();
             return;
-
         }
+
         string inputText = nameInputField.text;
-        if (EnterToggle.isOn){
+        if (EnterToggle.isOn)
+        {
             players = new List<string>(inputText.Split('\n'));
-        }else if(SpacebarToggle.isOn){
+        }
+        else if (SpacebarToggle.isOn)
+        {
             players = new List<string>(inputText.Split(' '));
-        }else if(CommaToggle.isOn){
-            players = new List<string>(inputText.Split(','));         
-        }else {
-            resultText.text = "옳바른 구분값을 선택해주세요.";
+        }
+        else if (CommaToggle.isOn)
+        {
+            players = new List<string>(inputText.Split(','));
+        }
+        else
+        {
+            resultText.text = "올바른 구분값을 선택해주세요.";
             AdjustContentSize();
             return;
         }
-        // Debug.Log(teamNumber);
+
+        players = players.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).ToList();
 
         if (players.Count < teamNumber)
         {
@@ -63,31 +77,19 @@ public class RandomGroupAssigner : MonoBehaviour
             return;
         }
 
+        groupsNumber = (byte)Mathf.CeilToInt((float)players.Count / teamNumber);
 
-
-        if (teamNumber != 0){
-            groupsNumber = (byte)(players.Count / teamNumber);
-        }else{
-            resultText.text = "조별 인원이 0 입니다.";
-            AdjustContentSize();
-            return;
-        }
         InitializeGroups();
-        Shuffle(players);
 
-        for (int i = 0; i < players.Count; i++)
+        if (WeekToggle.isOn)
         {
-            if (i < groupsNumber * teamNumber)
-            {
-                groups[i % groupsNumber].Add(players[i].Trim());
-            }
-            else
-            {
-                remainingPlayers.Add(players[i].Trim());
-            }
+            GenerateTeamsForWeeks(4); // 4주 동안 다른 팀을 구성
+        }
+        else
+        {
+            AssignGroupsOnce();
         }
 
-        DisplayGroups();
         AdjustContentSize();
     }
 
@@ -99,7 +101,6 @@ public class RandomGroupAssigner : MonoBehaviour
             groups[i] = new List<string>();
         }
         remainingPlayers = new List<string>(); // 남은 인원 리스트 초기화
-
     }
 
     private void Shuffle(List<string> list)
@@ -113,6 +114,142 @@ public class RandomGroupAssigner : MonoBehaviour
         }
     }
 
+    private void AssignGroupsOnce()
+    {
+        Shuffle(players);
+        for (int i = 0; i < players.Count; i++)
+        {
+            if (i < groupsNumber * teamNumber)
+            {
+                groups[i % groupsNumber].Add(players[i].Trim());
+            }
+            else
+            {
+                remainingPlayers.Add(players[i].Trim());
+            }
+        }
+
+        DisplayGroups();
+    }
+
+     private void GenerateTeamsForWeeks(int weeks)
+    {
+        string result = "";
+        for (int week = 0; week < weeks; week++)
+        {
+            InitializeGroups();
+            List<string> tempPlayers = new List<string>(players);
+            Shuffle(tempPlayers); // 매주 팀을 섞습니다.
+
+            for (int groupIndex = 0; groupIndex < groupsNumber; groupIndex++)
+            {
+                List<string> team = GetNextTeam(tempPlayers);
+                foreach (var player in team)
+                {
+                    groups[groupIndex].Add(player);
+                }
+            }
+
+            result += $"Week {week + 1}:\n";
+            for (int i = 0; i < groups.Length; i++)
+            {
+                result += $"{i + 1}조: ";
+                for (int j = 0; j < groups[i].Count; j++)
+                {
+                    result += groups[i][j];
+                    if (j < groups[i].Count - 1)
+                    {
+                        result += ", ";
+                    }
+                }
+                result += "\n";
+            }
+
+            if (remainingPlayers.Count > 0)
+            {
+                result += "배정 필요인원:\n";
+                foreach (string player in remainingPlayers)
+                {
+                    result += player + "\n";
+                }
+            }
+
+            result += "\n";
+            UpdateTeamHistory();
+        }
+
+        resultText.text = result;
+    }
+
+    private List<string> GetNextTeam(List<string> tempPlayers)
+    {
+        List<string> team = new List<string>();
+        for (int i = 0; i < teamNumber && tempPlayers.Count > 0; i++)
+        {
+            string nextPlayer = GetPlayerWithLeastHistory(tempPlayers, team);
+            team.Add(nextPlayer);
+            tempPlayers.Remove(nextPlayer);
+        }
+        return team;
+    }
+
+    private string GetPlayerWithLeastHistory(List<string> tempPlayers, List<string> currentTeam)
+    {
+        string bestCandidate = null;
+        int minHistoryCount = int.MaxValue;
+
+        foreach (var player in tempPlayers)
+        {
+            int historyCount = currentTeam.Sum(member => GetHistoryCount(player, member));
+            if (historyCount < minHistoryCount)
+            {
+                minHistoryCount = historyCount;
+                bestCandidate = player;
+            }
+        }
+
+        return bestCandidate;
+    }
+
+    private int GetHistoryCount(string player1, string player2)
+    {
+        if (teamHistory.ContainsKey(player1) && teamHistory[player1].ContainsKey(player2))
+        {
+            return teamHistory[player1][player2];
+        }
+        return 0;
+    }
+
+    private void UpdateTeamHistory()
+    {
+        foreach (var team in groups)
+        {
+            for (int i = 0; i < team.Count; i++)
+            {
+                for (int j = i + 1; j < team.Count; j++)
+                {
+                    AddToHistory(team[i], team[j]);
+                    AddToHistory(team[j], team[i]);
+                }
+            }
+        }
+    }
+
+    private void AddToHistory(string player1, string player2)
+    {
+        if (!teamHistory.ContainsKey(player1))
+        {
+            teamHistory[player1] = new Dictionary<string, int>();
+        }
+
+        if (!teamHistory[player1].ContainsKey(player2))
+        {
+            teamHistory[player1][player2] = 0;
+        }
+
+        teamHistory[player1][player2]++;
+    }
+
     private void DisplayGroups()
     {
         resultText.text = "";
@@ -121,14 +258,10 @@ public class RandomGroupAssigner : MonoBehaviour
             resultText.text += (i + 1) + "조: ";
             for (int j = 0; j < groups[i].Count; j++)
             {
-                if (j == groups[i].Count - 1)
+                resultText.text += groups[i][j];
+                if (j < groups[i].Count - 1)
                 {
-                    // 마지막 인원일 경우
-                    resultText.text += groups[i][j] + "\n";
-                }
-                else
-                {
-                    resultText.text += groups[i][j] + ", ";
+                    resultText.text += ", ";
                 }
             }
             resultText.text += "\n";
