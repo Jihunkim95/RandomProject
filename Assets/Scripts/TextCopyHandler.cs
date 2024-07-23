@@ -10,17 +10,23 @@ public class TextCopyHandler : MonoBehaviour
     public Button copyButton; // 복사 버튼
 
     public TextMeshProUGUI alarmText; // 복사 완료 알람
+
+    [DllImport("__Internal")]
+    private static extern void CopyToClipboard(string text);
+
     void Start()
     {
         copyButton.onClick.AddListener(CopyTextToClipboard);
     }
 
-    // WebGL 빌드 시에 JavaScript 플러그인을 사용하여 클립보드 복사 기능
     void CopyTextToClipboard()
     {
+#if UNITY_WEBGL && !UNITY_EDITOR
+        CopyToClipboard(resultText.text);
+#else
         GUIUtility.systemCopyBuffer = resultText.text;
-        alarmText.text = "복사 완료";
         Debug.Log("Text copied to clipboard: " + resultText.text);
+#endif
+        alarmText.text = "복사 완료";
     }
-
 }
