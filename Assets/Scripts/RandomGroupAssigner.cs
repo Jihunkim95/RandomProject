@@ -9,15 +9,13 @@ public class RandomGroupAssigner : MonoBehaviour
     public TMP_InputField nameInputField; // 이름 입력을 위한 TMP_InputField
     public TextMeshProUGUI resultText; // 결과를 표시할 TextMeshProUGUI
     public RectTransform contentRectTransform; // Content의 RectTransform
-    public TMP_InputField TeamNumInputField; // 조별 인원
+    public TMP_InputField teamNumInputField; // 조별 인원
     public TextMeshProUGUI alarmText; // 복사 완료 알람
-    //구분값 토글
-    public Toggle EnterToggle;
-    public Toggle SpacebarToggle;
-    public Toggle CommaToggle;
-
-    // 주단위 생성 토글
-    public Toggle WeekToggle;
+    public TMP_InputField weekNumInputField; // 생성할 주
+    public Toggle enterToggle;
+    public Toggle spacebarToggle;
+    public Toggle commaToggle;
+    public Toggle weekToggle;
 
     private List<string> players;
     private List<string>[] groups;
@@ -25,6 +23,7 @@ public class RandomGroupAssigner : MonoBehaviour
 
     private byte teamNumber; // teamNumber 변수를 byte 형식으로 선언
     private byte groupsNumber; // 조 갯수
+    private int weekNumber; // 생성 주
 
     private Dictionary<string, Dictionary<string, int>> teamHistory; // 팀 구성 기록
 
@@ -36,32 +35,10 @@ public class RandomGroupAssigner : MonoBehaviour
     public void AssignGroups()
     {
         alarmText.text = "";
-        if (byte.TryParse(TeamNumInputField.text, out byte result))
-        {
-            teamNumber = result;
-        }
-        else
-        {
-            resultText.text = "조별 인원이 올바른 형식이 아닙니다.";
-            teamNumber = 0;
-            AdjustContentSize();
-            return;
-        }
+        if (!ValidateInputs()) return;
 
-        string inputText = nameInputField.text;
-        if (EnterToggle.isOn)
-        {
-            players = new List<string>(inputText.Split('\n'));
-        }
-        else if (SpacebarToggle.isOn)
-        {
-            players = new List<string>(inputText.Split(' '));
-        }
-        else if (CommaToggle.isOn)
-        {
-            players = new List<string>(inputText.Split(','));
-        }
-        else
+        players = GetPlayersList(nameInputField.text);
+        if (players == null || players.Count == 0)
         {
             resultText.text = "올바른 구분값을 선택해주세요.";
             AdjustContentSize();
@@ -69,7 +46,6 @@ public class RandomGroupAssigner : MonoBehaviour
         }
 
         players = players.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()).ToList();
-
         if (players.Count < teamNumber)
         {
             resultText.text = "조별 인원보다 많은 인원을 입력해주세요.";
@@ -78,12 +54,11 @@ public class RandomGroupAssigner : MonoBehaviour
         }
 
         groupsNumber = (byte)Mathf.CeilToInt((float)players.Count / teamNumber);
-
         InitializeGroups();
 
-        if (WeekToggle.isOn)
+        if (weekToggle.isOn)
         {
-            GenerateTeamsForWeeks(4); // 4주 동안 다른 팀을 구성
+            GenerateTeamsForWeeks(weekNumber);
         }
         else
         {
@@ -91,6 +66,42 @@ public class RandomGroupAssigner : MonoBehaviour
         }
 
         AdjustContentSize();
+    }
+
+    private bool ValidateInputs()
+    {
+        if (!byte.TryParse(teamNumInputField.text, out teamNumber))
+        {
+            resultText.text = "조별 인원이 올바른 형식이 아닙니다.";
+            AdjustContentSize();
+            return false;
+        }
+
+        if (!int.TryParse(weekNumInputField.text, out weekNumber))
+        {
+            resultText.text = "주 숫자가 올바른 형식이 아닙니다.";
+            AdjustContentSize();
+            return false;
+        }
+
+        return true;
+    }
+
+    private List<string> GetPlayersList(string inputText)
+    {
+        if (enterToggle.isOn)
+        {
+            return new List<string>(inputText.Split('\n'));
+        }
+        else if (spacebarToggle.isOn)
+        {
+            return new List<string>(inputText.Split(' '));
+        }
+        else if (commaToggle.isOn)
+        {
+            return new List<string>(inputText.Split(','));
+        }
+        return null;
     }
 
     private void InitializeGroups()
@@ -132,49 +143,22 @@ public class RandomGroupAssigner : MonoBehaviour
         DisplayGroups();
     }
 
-     private void GenerateTeamsForWeeks(int weeks)
+    private void GenerateTeamsForWeeks(int weeks)
     {
         string result = "";
         for (int week = 0; week < weeks; week++)
         {
             InitializeGroups();
             List<string> tempPlayers = new List<string>(players);
-            Shuffle(tempPlayers); // 매주 팀을 섞습니다.
+            Shuffle(tempPlayers);
 
             for (int groupIndex = 0; groupIndex < groupsNumber; groupIndex++)
             {
                 List<string> team = GetNextTeam(tempPlayers);
-                foreach (var player in team)
-                {
-                    groups[groupIndex].Add(player);
-                }
+                groups[groupIndex].AddRange(team);
             }
 
-            result += $"Week {week + 1}:\n";
-            for (int i = 0; i < groups.Length; i++)
-            {
-                result += $"{i + 1}조: ";
-                for (int j = 0; j < groups[i].Count; j++)
-                {
-                    result += groups[i][j];
-                    if (j < groups[i].Count - 1)
-                    {
-                        result += ", ";
-                    }
-                }
-                result += "\n";
-            }
-
-            if (remainingPlayers.Count > 0)
-            {
-                result += "배정 필요인원:\n";
-                foreach (string player in remainingPlayers)
-                {
-                    result += player + "\n";
-                }
-            }
-
-            result += "\n";
+            result += $"Week {week + 1}:\n" + FormatGroups() + "\n";
             UpdateTeamHistory();
         }
 
@@ -195,20 +179,7 @@ public class RandomGroupAssigner : MonoBehaviour
 
     private string GetPlayerWithLeastHistory(List<string> tempPlayers, List<string> currentTeam)
     {
-        string bestCandidate = null;
-        int minHistoryCount = int.MaxValue;
-
-        foreach (var player in tempPlayers)
-        {
-            int historyCount = currentTeam.Sum(member => GetHistoryCount(player, member));
-            if (historyCount < minHistoryCount)
-            {
-                minHistoryCount = historyCount;
-                bestCandidate = player;
-            }
-        }
-
-        return bestCandidate;
+        return tempPlayers.OrderBy(player => currentTeam.Sum(member => GetHistoryCount(player, member))).First();
     }
 
     private int GetHistoryCount(string player1, string player2)
@@ -252,35 +223,41 @@ public class RandomGroupAssigner : MonoBehaviour
 
     private void DisplayGroups()
     {
-        resultText.text = "";
+        resultText.text = FormatGroups();
+    }
+
+    private string FormatGroups()
+    {
+        string result = "";
         for (int i = 0; i < groups.Length; i++)
         {
-            resultText.text += (i + 1) + "조: ";
+            result += $"{i + 1}조: ";
             for (int j = 0; j < groups[i].Count; j++)
             {
-                resultText.text += groups[i][j];
+                result += groups[i][j];
                 if (j < groups[i].Count - 1)
                 {
-                    resultText.text += ", ";
+                    result += ", ";
                 }
             }
-            resultText.text += "\n";
+            result += "\n";
         }
 
         if (remainingPlayers.Count > 0)
         {
-            resultText.text += "배정 필요인원:\n";
+            result += "배정 필요인원:\n";
             foreach (string player in remainingPlayers)
             {
-                resultText.text += player + "\n";
+                result += player + "\n";
             }
-            resultText.text += "\n";
+            result += "\n";
         }
+
+        return result;
     }
 
     private void AdjustContentSize()
     {
-        // ResultText의 높이에 따라 Content의 높이를 조정
         contentRectTransform.sizeDelta = new Vector2(contentRectTransform.sizeDelta.x, resultText.preferredHeight);
     }
 }
